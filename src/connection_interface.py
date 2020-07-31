@@ -103,6 +103,7 @@ def discoDisco():
     Qd = 100*sparse.eye(1)
     Rd = 0.01*sparse.eye(1)
     Qbar = matrix(np.array(ret['Qbar']).astype(np.double))
+    Rbar = matrix(np.array(ret['Rbar']).astype(np.double))
     Gm = matrix(np.array(ret['G']).astype(np.double))
     Mm = matrix(np.array(ret['M']).astype(np.double))
     Parr = np.array(ret['P']).astype(np.double)
@@ -126,6 +127,19 @@ def discoDisco():
     Pk = np.array([[1.,1.],[1.,1.]])
     Aeq = matrix(np.array(ret['Aeq']).astype(np.double))
     beq = matrix(np.array(ret['beq']).astype(np.double))
+
+    # steady state evaluations
+    A_ss = matrix(np.array(ret['A_ss']).astype(np.double))
+    Q_ss = matrix(np.array(ret['Q_ss']).astype(np.double))
+    A_ss_ineq = matrix(np.array(ret['A_ss_ineq']).astype(np.double))
+    b_ss_ineq = matrix(np.array(ret['b_ss_ineq']).astype(np.double))
+    q0 = matrix([0.,0.,0.])
+    for key in evalDict:
+        b_ss = matrix(np.array([[0.],[0.],[evalDict[key]['T']]]).astype(np.double))
+        res = solvers.qp(Q_ss,q0,A_ss_ineq,b_ss_ineq,A_ss,b_ss)
+        evalDict[key]["Xr"] = [float(res['x'][0]), float(res['x'][1])]
+        evalDict[key]["Ur"] = float(res['x'][2])
+
     uk = 210.0
     T0_targ_val = 210
     prevTemp = 210
@@ -200,15 +214,22 @@ def discoDisco():
                     print("Time to fin line "+str(next_e_lineNr)+" is :"+str(time_to_fin_line)+"\n")
 
                     # get the horizon
-                    t_targ = evalDict[closest_val]["T"]
+                    t_targ = evalDict[closest_val]["Xr"]
+                    u_targ = evalDict[closest_val]["Ur"]
                     cleval = closest_val
                     rvec = []
+                    uvec = []
                     while len(rvec) <= N:
                         val = math.floor(time_to_fin_line/0.5)
                         rvec.extend([t_targ for i in range(val)])
+                        uvec.extend([u_targ for i in range(val)])
                         cleval = es[es.index(cleval)+1]
-                        t_targ = evalDict[cleval]["T"]
+                        t_targ = evalDict[cleval]["Xr"]
+                        u_targ = evalDict[cleval]["Ur"]
                         time_to_fin_line = evalDict[cleval]["line_time"]
+                    r_ref = matrix(np.array(rvec[:N]).flatten())
+                    u_ref = matrix(np.array(uvec[:N]))
+
                     currentTemp = float(T0_val[3:-1])
                     # xkest = matrix(np.array([[prevTemp],[currentTemp]])) 
                     xkest = Ad.dot(xkest) + Bd.dot(uk)
@@ -222,10 +243,10 @@ def discoDisco():
                     if len(uq)>dly:
                         beq = matrix(np.array(uq[-dly:]))
                     else:
-                        beq = matrix(np.array([t_targ for i in range(dly)]))
+                        beq = matrix(np.array([u_targ for i in range(dly)]))
 
                     x0 = matrix(xkest)
-                    q = Gm.T*( Qbar*( Mm*(x0) - 1*matrix(np.array(rvec[:N])) ) )
+                    q = Gm.T*( Qbar*( Mm*(x0) - r_ref)) - Rbar*u_ref
                     res = solvers.qp(P,q,A,b,Aeq,beq)
                     uk = float(res['x'][dly])
                     uq.append(uk)

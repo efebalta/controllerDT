@@ -28,22 +28,23 @@ function [rall] = um3_mpc_data()
     B = sys3.B;
     C = sys3.C;
     G = []; M = []; dly = 10;
-    N = 20+dly;
+    N = 50+dly;
     for i = 1:N
-        nb = size(C*B,1);
+        nb = size(B,1);
         gi = [];
         for j = 1:i
-            gi = [C*A^(j-1)*B gi];
+            gi = [A^(j-1)*B gi];
         end
         gi = [gi zeros(nb,N-i)];
         G = [G;gi];
-        M = [M;C*A^i];
+        M = [M;A^i];
     end
-    Q = 100;
+    Q = 10*eye(2);
+    R = 1;
     [Pinf] = idare(A,B,Q,R,[],[]);
-    Qbar = kron(eye(N),Q);
-%     Qbar = blkdiag(Qbar,Pinf(1,1));
-    Rbar = 1*eye(size(Qbar));
+    Qbar = kron(eye(N-1),Q);
+    Qbar = blkdiag(Qbar,Pinf);
+    Rbar = kron(eye(N),R);
 %     x0 = [120;120];
 %     simlen = 4500;
     datbeg = 1050;datend = 5984;
@@ -56,14 +57,17 @@ function [rall] = um3_mpc_data()
     bineq = 25*ones(size(Aineq,1),1);
     P = G'*Qbar*G+Rbar; 
     P = (P'+P)./2;
-    q = G'*Qbar*(M*x0-rvec);
+%     q = G'*Qbar*(M*x0-rvec);
     lb = 0*ones(size(q));
     ub = 220*ones(size(q));
     Aeq = [eye(dly),zeros(dly,N-dly)]; beq = zeros(dly,1);
 %     Aeq = [zeros(21,29), eye(21)]; beq = zeros(21,1);
 %     cycletimes = [];
+    A_ss = [eye(2)-A -B; C 0]; Q_ss = 10*eye(3);
+    A_ss_ineq = [0 0 1; 0 0 -1]; b_ss_ineq = [ub(1);-lb(1)];
 save('mpcdat.mat','P','q','Aineq','bineq','lb','ub',...
-    'A','B','C','M','G','Qbar','N','rall','Aeq','beq','dly');
+    'A','B','C','M','G','Qbar','Rbar','N','rall','Aeq','beq',...
+    'dly','A_ss','Q_ss','A_ss_ineq','b_ss_ineq');
 end
 
 % for i = 1:simlen  
