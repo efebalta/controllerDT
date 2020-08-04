@@ -24,7 +24,7 @@
 ;Generated with Cura_SteamEngine 4.5.0
 T0
 M82 ;absolute extrusion mode
-
+M104 T1 S40
 G92 E0
 M109 S210
 G0 F15000 X9 Y6 Z2
