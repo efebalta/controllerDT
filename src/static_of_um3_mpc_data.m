@@ -57,9 +57,9 @@ function [rall] = um3_mpc_data()
     bineq = 25*ones(size(Aineq,1),1);
     P = G'*Qbar*G+Rbar; 
     P = (P'+P)./2;
-    q = 0*G'*Qbar*(M*x0);
-    lb = 0*ones(N,1);
-    ub = 220*ones(N,1);
+%     q = G'*Qbar*(M*x0-rvec);
+    lb = 0*ones(size(q));
+    ub = 220*ones(size(q));
     Aeq = [eye(dly),zeros(dly,N-dly)]; beq = zeros(dly,1);
 %     Aeq = [zeros(21,29), eye(21)]; beq = zeros(21,1);
 %     cycletimes = [];

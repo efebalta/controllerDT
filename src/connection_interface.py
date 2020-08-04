@@ -50,8 +50,9 @@ with open(file_name) as fp:
                     lineDict[zval] = {"lines":[str(line[:-1])], "Z":str(zval[1:]), "lineNr": lineNum}
                     lastZ = float(zval[1:])
                     lines.append(line[:-1])
-                    if layerNum % 2 == 0:
-                        temperature += 0.1
+                    if layerNum % 5 == 0:
+                        # temperature += 0.1
+                        temperature = 210 if temperature == 205 else 205
                     layerNum += 1
             
         if "G" in line and zstart and ";" not in line:
@@ -121,7 +122,8 @@ def discoDisco():
     res = solvers.qp(P,q,A,b)
     t2 = time.time()
     print(float(t2-t1))
-    xkest = np.array([[210.],[210.]])
+    # xkest = np.array([[210.],[210.]])
+    kf_init = 0
     Qnoise = np.array([[0.7,0.9],[0.9,1.2]])
     Rnoise = np.array([0.1])
     Pk = np.array([[1.,1.],[1.,1.]])
@@ -155,7 +157,7 @@ def discoDisco():
         time.sleep(1)
         out = remote_connection.recv(2000)
         opt_cycle = 0
-        for i in range(2500):
+        for i in range(10000):
             print('cycle %i' %i)
             t3 = time.time()
             # remote_connection.send('sendgcode M104 S70\n')
@@ -230,7 +232,10 @@ def discoDisco():
                     r_ref = matrix(np.array(rvec[:N]).flatten())
                     u_ref = matrix(np.array(uvec[:N]))
 
-                    currentTemp = float(T0_val[3:-1])
+                    currentTemp = float(T0_val[3:-1]) #+ np.random.randint(8) #7*np.sin(i/25)#7
+                    if not kf_init:
+                        xkest = matrix(np.array([[currentTemp],[currentTemp]]))
+                        kf_init = 1
                     # xkest = matrix(np.array([[prevTemp],[currentTemp]])) 
                     xkest = Ad.dot(xkest) + Bd.dot(uk)
                     Pk = Ad.dot(Pk.dot(Ad.T)) + Qnoise
@@ -260,12 +265,15 @@ def discoDisco():
                     print("Estimated State: "+str(x0[0])+"; "+ str(x0[1])+"\n")
                     print("Reference: "+str(rvec[0]))
                     remote_connection.send('sendgcode M104 S%.2f\n'%float(uk))
+                    ext2_offset = 190 # offset by this amount to see the temp ref 
+                    remote_connection.send('sendgcode T1 M104 S%.2f\n'%(evalDict[closest_val]["T"]-ext2_offset))
                     # uk = float(t_targ)#
                     # uk = float(res['x'][0])
 
                     # set the temperature if it's not right
                     # if abs(T0_targ_val - evalDict[closest_val]["T"])>0.2:
-                        # remote_connection.send('sendgcode M104 S%.2f\n'%evalDict[closest_val]["T"])
+                    #     remote_connection.send('sendgcode M104 S%.2f\n'%evalDict[closest_val]["T"])
+                        
 
 
                 except:
