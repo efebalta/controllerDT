@@ -34,6 +34,8 @@ zval = 0
 zstart = 0
 last_feed = 0
 temperature = 205
+basetemp = 205
+ud = 1
 layerNum = 1
 with open(file_name) as fp:
     while True:
@@ -50,8 +52,14 @@ with open(file_name) as fp:
                     lineDict[zval] = {"lines":[str(line[:-1])], "Z":str(zval[1:]), "lineNr": lineNum}
                     lastZ = float(zval[1:])
                     lines.append(line[:-1])
+                    # if temperature <= 210 and ud:
+                    #     temperature += 1*(layerNum % 2)
+                    #     ud = 0 if temperature == 210 else 1
+                    # else:
+                    #     temperature -= 1*(layerNum % 2)
+                    #     ud = 1 if temperature == 205 else 0
                     if layerNum % 5 == 0:
-                        # temperature += 0.1
+                        # temperature += 0.4
                         temperature = 210 if temperature == 205 else 205
                     layerNum += 1
             
@@ -96,7 +104,8 @@ a = 3
 
 def discoDisco():
     # Get the controller matrices
-    ret = loadmat('src/mpcdat.mat')
+    # ret = loadmat('src/mpcdat.mat')
+    ret = loadmat('src/mpcdat_robust.mat')
     N = int(ret['N'])
     Ad = np.array(ret['A']).astype(np.double)
     Bd = np.array(ret['B']).astype(np.double)
@@ -117,6 +126,8 @@ def discoDisco():
     solvers.options['show_progress'] = False 
     Aeq = matrix(np.array(ret['Aeq']).astype(np.double))
     beq = matrix(np.array(ret['beq']).astype(np.double))
+    K = matrix(np.array(ret['K']).astype(np.double))
+    W0 = matrix(np.array(ret['W0']).astype(np.double))
     dly = int(ret['dly'])
     t1 = time.time()
     res = solvers.qp(P,q,A,b)
@@ -124,11 +135,15 @@ def discoDisco():
     print(float(t2-t1))
     # xkest = np.array([[210.],[210.]])
     kf_init = 0
-    Qnoise = np.array([[0.7,0.9],[0.9,1.2]])
-    Rnoise = np.array([0.1])
-    Pk = np.array([[1.,1.],[1.,1.]])
+    Qnoise = np.array([[0.7,0.92],[0.92,1.19]])
+    # Qnoise = np.array([[0.1,0.],[0.,0.1]])
+    Rnoise = np.array([0.05])
+    Pk = np.array([[0.4,0.4],[0.4,0.4]])
+    # Pk = np.array([[1.,1.],[1.,1.]])
     Aeq = matrix(np.array(ret['Aeq']).astype(np.double))
     beq = matrix(np.array(ret['beq']).astype(np.double))
+    Lu  = matrix(np.array([[0.026],[0.026]]))
+    ss_timestamp = 1
 
     # steady state evaluations
     A_ss = matrix(np.array(ret['A_ss']).astype(np.double))
@@ -147,7 +162,7 @@ def discoDisco():
     prevTemp = 210
     uq = []
     try:
-        host = '192.168.0.100'
+        host = '192.168.0.102'
         user = 'ultimaker'
         passwd = 'ultimaker'
         ssh = paramiko.SSHClient()
@@ -232,9 +247,10 @@ def discoDisco():
                     r_ref = matrix(np.array(rvec[:N]).flatten())
                     u_ref = matrix(np.array(uvec[:N]))
 
-                    currentTemp = float(T0_val[3:-1]) #+ np.random.randint(8) #7*np.sin(i/25)#7
+                    currentTemp = float(T0_val[3:-1])+7 #np.random.randint(8) #7*np.sin(i/25)#7
                     if not kf_init:
                         xkest = matrix(np.array([[currentTemp],[currentTemp]]))
+                        xkestL = xkest
                         kf_init = 1
                     # xkest = matrix(np.array([[prevTemp],[currentTemp]])) 
                     xkest = Ad.dot(xkest) + Bd.dot(uk)
@@ -245,11 +261,47 @@ def discoDisco():
                     xkest = xkest + Kk.dot(ytil)
                     Pk = (np.identity(2) - Kk.dot(Cd)).dot(Pk)
                     
-                    if len(uq)>dly:
+                    xkestL = Ad.dot(xkestL) + Bd.dot(uk) + Lu*(Cd.dot(xkestL) - currentTemp)
+                    
+                    if len(uq)>=dly:
                         beq = matrix(np.array(uq[-dly:]))
+                        # abnormality detection
+                        if abs(currentTemp - evalDict[closest_val]["T"])<=0.2:
+                            ss_timestamp = i
+                            xbwd_compare = evalDict[closest_val]["Xr"]
+
+                        if abs(currentTemp - evalDict[closest_val]["T"])>0.4:
+                            time_k = i - ss_timestamp
+                            if time_k < 0:
+                                print('Discriminant time index error \n')
+                                continue
+                            elif len(uq) < time_k:
+                                print('Not enough control in queue \n')
+                                remote_connection.send('sendgcode M140 S65\n')
+                            else:
+                                a=3
+                                vtr = sum([np.linalg.matrix_power(Ad,time_k-1-idx).dot(Bd.dot(uq[-time_k-dly+idx])) 
+                                        for idx in range(time_k) ])
+                                Mss = np.linalg.matrix_power(Ad,time_k)
+                                w_pwr = sum([np.linalg.matrix_power(Ad,time_k-1-idx).dot(W0) for idx in range(time_k) ])
+                                w_dg = np.array([[w_pwr[0,0]],[w_pwr[1,1]]])
+                                xbwd = np.linalg.inv(Mss).dot(xkest-vtr)
+                                
+                                # k_bound = K[0]**time_k
+                                if np.linalg.norm(xbwd[0]-xbwd_compare[0], np.inf) > K[0]:
+                                    print('Abnormality BWD: xbwd = {0}, comp = {1} \n'.format(xbwd,xbwd_compare))
+                                    remote_connection.send('sendgcode M140 S55\n')
+
+                            # ukfwd = uq[-dly]
+                            # xfwd = Ad.dot(xkest_prev) + Bd.dot(ukfwd) 
+                            # if np.linalg.norm(xfwd[0]-xkest[0], np.inf) > 0.2:
+                            #     print('Abnormality FWD \n')
+                            #     remote_connection.send('sendgcode M140 S50\n')
+
                     else:
                         beq = matrix(np.array([u_targ for i in range(dly)]))
 
+                    xkest_prev = xkest
                     x0 = matrix(xkest)
                     q = Gm.T*( Qbar*( Mm*(x0) - r_ref)) - Rbar*u_ref
                     res = solvers.qp(P,q,A,b,Aeq,beq)
@@ -262,7 +314,8 @@ def discoDisco():
                     #     uk = float(t_targ)
 
                     print("MPC reference: "+ str(uk))
-                    print("Estimated State: "+str(x0[0])+"; "+ str(x0[1])+"\n")
+                    print("Estimated State KF: "+str(x0[0])+"; "+ str(x0[1])+"\n")
+                    # print("Estimated State Lue: "+str(xkestL[0])+"; "+ str(xkestL[1])+"\n")
                     print("Reference: "+str(rvec[0]))
                     remote_connection.send('sendgcode M104 S%.2f\n'%float(uk))
                     ext2_offset = 190 # offset by this amount to see the temp ref 
@@ -270,10 +323,12 @@ def discoDisco():
                     # uk = float(t_targ)#
                     # uk = float(res['x'][0])
 
+
                     # set the temperature if it's not right
                     # if abs(T0_targ_val - evalDict[closest_val]["T"])>0.2:
                     #     remote_connection.send('sendgcode M104 S%.2f\n'%evalDict[closest_val]["T"])
-                        
+
+                    remote_connection.send('sendgcode M140 S60\n')
 
 
                 except:

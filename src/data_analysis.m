@@ -1,0 +1,13 @@
+tt = Time - Time(1);
+databeg = 3000;
+dataend = 32500;
+% plot(temperature0(databeg:dataend));
+tref = target1+190;
+% hold on;
+% plot(target0(databeg:dataend));
+% hold off;
+plot(target2(databeg:dataend)-temperature2(databeg:dataend),'Displayname','Only PID'); 
+hold on;
+plot(tref(databeg:dataend)-temperature0(databeg:dataend),'Displayname','Network MPC');
+% plot(tt, bed_temperature);
+% plot(tref(databeg:dataend));

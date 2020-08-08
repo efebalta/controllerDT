@@ -19,7 +19,7 @@ path = "misc/flowListen/"+ts+'.txt'
 
 def mainListener():
     isPrint = 0
-    printerIP = '192.168.0.100'
+    printerIP = '192.168.0.102'
     apiurl = 'http://'+printerIP+'/api/v1/'
     # Get the printer state form the API
     # r = requests.get(apiurl+'v1/print_job/state')
